@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 from rich.console import Console
@@ -17,15 +17,6 @@ def _similarity_color(value: float) -> str:
         return "yellow"
     else:
         return "dim"
-
-
-def _similarity_bg(value: float) -> str:
-    if value > 0.85:
-        return "color(22)"
-    elif value >= 0.50:
-        return "color(178)"
-    else:
-        return "color(240)"
 
 
 def render_heatmap(
@@ -58,87 +49,66 @@ def render_heatmap(
     console.print("[green]■[/green] >85%  [yellow]■[/yellow] 50-85%  [dim]■[/dim] <50%")
 
 
-def render_ascii_tree(
-    root: NewickNode,
-    console: Optional[Console] = None,
-    max_width: int = 80,
-) -> None:
-    if console is None:
-        console = Console()
-    lines = _build_tree_lines(root, "")
-    for line in lines:
-        console.print(line)
-
-
-def _build_tree_lines(
-    node: NewickNode, prefix: str
-) -> List[str]:
-    lines = []
+def _tree_max_depth(node: NewickNode) -> float:
     if node.is_leaf:
-        dist_str = f"({node.distance:.4f})" if node.distance > 0 else ""
-        lines.append(f"{prefix}── {node.name} {dist_str}")
-        return lines
-
-    label = ""
-    if node.bootstrap is not None:
-        label = f" [{node.bootstrap:.0f}]"
-
-    dist_str = f"({node.distance:.4f})" if node.distance > 0 else ""
-
-    if len(node.children) == 1:
-        lines.append(f"{prefix}──{label}{dist_str}")
-        lines.extend(_build_tree_lines(node.children[0], prefix + "   "))
-        return lines
-
-    last_idx = len(node.children) - 1
-    for idx, child in enumerate(node.children):
-        if idx == 0 and len(node.children) > 1:
-            if idx == last_idx:
-                connector = "──"
-                child_prefix = prefix + "   "
-            else:
-                connector = "┬─"
-                child_prefix = prefix + "│  "
-            if idx == last_idx:
-                lines.append(f"{prefix}└{connector}{label}{dist_str}")
-            else:
-                lines.append(f"{prefix}┌{connector}{label}{dist_str}")
-            lines.extend(_build_tree_lines(child, child_prefix))
-        elif idx == last_idx:
-            lines.extend(_build_tree_lines(child, prefix + "   "))
-        else:
-            lines.extend(_build_tree_lines(child, prefix + "│  "))
-
-    return lines
+        return node.distance
+    return node.distance + max(
+        _tree_max_depth(child) for child in node.children
+    )
 
 
 def render_tree_ascii(
     root: NewickNode,
     console: Optional[Console] = None,
+    max_branch_chars: int = 40,
 ) -> None:
     if console is None:
         console = Console()
-    tree_str = _render_node(root, "", True)
-    console.print(tree_str)
+    max_depth = _tree_max_depth(root)
+    if max_depth <= 0:
+        max_depth = 1.0
+    scale = max_branch_chars / max_depth
+
+    lines = _render_scaled_node(root, "", True, scale, 0.0)
+    console.print(lines.rstrip())
 
 
-def _render_node(node: NewickNode, prefix: str, is_last: bool) -> str:
+def _render_scaled_node(
+    node: NewickNode,
+    prefix: str,
+    is_last: bool,
+    scale: float,
+    cum_dist: float,
+) -> str:
+    branch_chars = max(1, int(round(node.distance * scale)))
+    branch_line = "─" * branch_chars
     result = ""
-    connector = "└──" if is_last else "├──"
-    child_prefix = "    " if is_last else "│   "
+
+    connector = "└" if is_last else "├"
+    child_prefix_cont = prefix + (" " * (branch_chars + 3)) if is_last else prefix + "│" + (" " * (branch_chars + 2))
 
     if node.is_leaf:
-        dist_str = f":{node.distance:.4f}" if node.distance > 0 else ""
-        result = prefix + connector + " " + node.name + dist_str + "\n"
-    else:
-        label = ""
+        label = node.name
         if node.bootstrap is not None:
-            label = f" [{node.bootstrap:.0f}]"
-        dist_str = f":{node.distance:.4f}" if node.distance > 0 else ""
-        result = prefix + connector + label + dist_str + "\n"
+            label += f" [{node.bootstrap:.0f}]"
+        label += f" ({node.distance:.4f})"
+        result = prefix + connector + branch_line + " " + label + "\n"
+    else:
+        node_label = ""
+        if node.bootstrap is not None:
+            node_label = f" [{node.bootstrap:.0f}]"
+        if node.distance > 0:
+            node_label += f" ({node.distance:.4f})"
+        result = prefix + connector + branch_line + node_label + "\n"
+
         for i, child in enumerate(node.children):
-            result += _render_node(
-                child, prefix + child_prefix, i == len(node.children) - 1
+            child_is_last = (i == len(node.children) - 1)
+            result += _render_scaled_node(
+                child,
+                child_prefix_cont if not node.is_leaf else prefix + (" " * (branch_chars + 3)),
+                child_is_last,
+                scale,
+                cum_dist + node.distance,
             )
     return result
 

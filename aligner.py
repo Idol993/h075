@@ -42,55 +42,38 @@ class AlignmentEngine:
         if not alignments:
             return seq1, seq2, 0.0
         best = alignments[0]
-        score = best.score
-        aligned_str = str(best).split("\n")
-        if len(aligned_str) >= 3:
-            aligned_seq1 = aligned_str[0]
-            aligned_seq2 = aligned_str[2]
-        else:
-            aligned_seq1 = seq1
-            aligned_seq2 = seq2
-        max_possible = max(len(seq1), len(seq2))
-        if self.aligner.mode == "global":
-            max_possible = max(len(seq1), len(seq2)) * max(
-                self.aligner.match_score, 2
-            )
-            if max_possible > 0:
-                similarity = max(0.0, min(1.0, score / max_possible))
-            else:
-                similarity = 0.0
-        else:
-            similarity = self._compute_similarity(aligned_seq1, aligned_seq2)
+        aligned_seq1 = str(best[0])
+        aligned_seq2 = str(best[1])
+        similarity = self._compute_similarity(aligned_seq1, aligned_seq2)
         return aligned_seq1, aligned_seq2, similarity
 
     def align_pair_simple(
         self, seq1: str, seq2: str
     ) -> float:
+        if seq1 == seq2:
+            return 1.0
         alignments = self.aligner.align(seq1, seq2)
         if not alignments:
             return 0.0
         best = alignments[0]
-        aligned_str = str(best).split("\n")
-        if len(aligned_str) >= 3:
-            aligned_seq1 = aligned_str[0]
-            aligned_seq2 = aligned_str[2]
-            return self._compute_similarity(aligned_seq1, aligned_seq2)
-        return 0.0
+        aligned_seq1 = str(best[0])
+        aligned_seq2 = str(best[1])
+        return self._compute_similarity(aligned_seq1, aligned_seq2)
 
     @staticmethod
     def _compute_similarity(aligned1: str, aligned2: str) -> float:
-        matches = 0
-        total = 0
-        for c1, c2 in zip(aligned1, aligned2):
-            if c1 == "-" or c2 == "-":
-                total += 1
-            else:
-                total += 1
-                if c1 == c2:
-                    matches += 1
-        if total == 0:
+        if len(aligned1) == 0 or len(aligned2) == 0:
             return 0.0
-        return matches / total
+        align_len = max(len(aligned1), len(aligned2))
+        aligned1 = aligned1.ljust(align_len, "-")
+        aligned2 = aligned2.ljust(align_len, "-")
+        matches = 0
+        for c1, c2 in zip(aligned1, aligned2):
+            if c1 == "-" and c2 == "-":
+                continue
+            if c1 == c2:
+                matches += 1
+        return matches / align_len
 
     def align_multiple(
         self, sequences: List[str], names: List[str]
@@ -104,12 +87,19 @@ class AlignmentEngine:
                 max_len = len(s)
                 ref_idx = i
         ref_seq = sequences[ref_idx]
-        aligned_pairs = []
+
         ref_aligned, _, _ = self.align_pair(ref_seq, ref_seq)
-        aligned_pairs.append((names[ref_idx], ref_seq))
+        result = [(names[ref_idx], ref_aligned)]
+
         for i, seq in enumerate(sequences):
             if i == ref_idx:
                 continue
             _, aligned_seq, _ = self.align_pair(ref_seq, seq)
-            aligned_pairs.append((names[i], aligned_seq))
-        return aligned_pairs
+            if len(aligned_seq) < len(ref_aligned):
+                aligned_seq = aligned_seq.ljust(len(ref_aligned), "-")
+            elif len(aligned_seq) > len(ref_aligned):
+                aligned_seq = aligned_seq[: len(ref_aligned)]
+            result.append((names[i], aligned_seq))
+
+        result.sort(key=lambda x: names.index(x[0]))
+        return result
