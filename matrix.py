@@ -186,9 +186,7 @@ def is_alignment_input(sequences: List[str]) -> bool:
     first_len = len(sequences[0])
     if first_len < 2:
         return False
-    all_same_len = all(len(s) == first_len for s in sequences)
-    has_gaps = any("-" in s for s in sequences)
-    return all_same_len and has_gaps
+    return all(len(s) == first_len for s in sequences)
 
 
 def pair_align_all(

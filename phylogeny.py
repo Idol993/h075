@@ -265,6 +265,7 @@ def compute_bootstrap_support(
     method: str = "nj",
     n_replicates: int = 100,
     mode: str = "needle",
+    distance_model: Optional[str] = None,
     random_seed: Optional[int] = 42,
     progress_callback=None,
 ) -> Tuple[List[float], List[frozenset]]:
@@ -280,7 +281,13 @@ def compute_bootstrap_support(
     if seq_len == 0:
         return [], []
 
-    orig_dist, _ = compute_distance_matrix(aligned_sequences, names, mode=mode)
+    if distance_model and distance_model != "similarity":
+        from distance import compute_distance_matrix_from_aligned
+        orig_dist, _ = compute_distance_matrix_from_aligned(
+            aligned_sequences, names, model=distance_model
+        )
+    else:
+        orig_dist, _ = compute_distance_matrix(aligned_sequences, names, mode=mode)
     if method == "nj":
         orig_tree = build_nj_tree(orig_dist, names)
     else:
@@ -303,7 +310,12 @@ def compute_bootstrap_support(
         resampled = ["".join(seq[i] for i in indices) for seq in aligned_sequences]
 
         try:
-            rep_dist, _ = compute_distance_matrix(resampled, names, mode=mode)
+            if distance_model and distance_model != "similarity":
+                rep_dist, _ = compute_distance_matrix_from_aligned(
+                    resampled, names, model=distance_model
+                )
+            else:
+                rep_dist, _ = compute_distance_matrix(resampled, names, mode=mode)
             if method == "nj":
                 rep_tree = build_nj_tree(rep_dist, names)
             else:

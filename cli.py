@@ -176,8 +176,12 @@ def matrix_cmd(input_file, matrix_type, distance_model, fmt, output_file, align_
     aligned = is_alignment_input(sequences)
 
     if aligned:
-        console.print(f"[cyan]Detected pre-aligned input ({len(sequences[0])} bp, with gaps). "
-                      f"Using existing alignment.[/cyan]")
+        has_gaps = any("-" in s for s in sequences)
+        gap_str = ", with gaps" if has_gaps else ", no gaps"
+        console.print(
+            f"[cyan]Detected equal-length input ({len(sequences[0])} bp{gap_str}). "
+            f"Treating as pre-aligned; using column positions directly.[/cyan]"
+        )
         if matrix_type == "distance":
             console.print(f"[cyan]Computing distance matrix with model: {distance_model}[/cyan]")
             mat, ordered_names = compute_distance_matrix_from_aligned(
@@ -229,6 +233,12 @@ def matrix_cmd(input_file, matrix_type, distance_model, fmt, output_file, align_
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w", newline="", encoding="utf-8") as fh:
+        fh.write(f"# matrix_type={matrix_type}\n")
+        fh.write(f"# distance_model={distance_model}\n")
+        if aligned:
+            fh.write("# input=aligned (equal-length sequences)\n")
+        else:
+            fh.write(f"# input=unaligned; pairwise_{align_mode}_alignment_used\n")
         writer = csv.writer(fh, delimiter=delimiter)
         header = [""] + ordered_names
         writer.writerow(header)
@@ -298,7 +308,12 @@ def tree(input_file, method, output_file, distance_model, align_mode,
     pre_aligned = is_alignment_input(sequences)
 
     if pre_aligned:
-        console.print(f"[cyan]Detected pre-aligned input ({len(sequences[0])} bp). Using as-is.[/cyan]")
+        has_gaps = any("-" in s for s in sequences)
+        gap_str = ", with gaps" if has_gaps else ", no gaps"
+        console.print(
+            f"[cyan]Detected equal-length input ({len(sequences[0])} bp{gap_str}). "
+            f"Treating as pre-aligned; using column positions directly.[/cyan]"
+        )
         aligned_seqs = list(sequences)
         console.print(f"[cyan]Computing distance matrix (model: {distance_model})...[/cyan]")
         dist_matrix, ordered_names = compute_distance_matrix_from_aligned(
@@ -375,6 +390,7 @@ def tree(input_file, method, output_file, distance_model, align_mode,
                 method=method,
                 n_replicates=bootstrap_replicates,
                 mode=align_mode,
+                distance_model=distance_model,
                 progress_callback=bs_progress,
             )
         assign_bootstrap_to_nodes(root, bs_values, orig_partitions)
@@ -388,7 +404,7 @@ def tree(input_file, method, output_file, distance_model, align_mode,
     render_tree_ascii(root, console=console)
 
     if output_file:
-        write_newick(root, output_file)
+        _write_newick_with_metadata(root, output_file, method, distance_model, bootstrap_replicates)
         console.print(f"[green]Newick tree saved to {output_file}[/green]")
     else:
         nwk = root.to_newick() + ";"
@@ -397,11 +413,34 @@ def tree(input_file, method, output_file, distance_model, align_mode,
         console.print(nwk)
 
     if report_file:
-        _write_tree_report(root, report_file, bootstrap_enabled=(bootstrap_replicates > 0))
+        _write_tree_report(
+            root, report_file,
+            bootstrap_enabled=(bootstrap_replicates > 0),
+            tree_method=method,
+            distance_model=distance_model,
+            bootstrap_replicates=bootstrap_replicates,
+        )
         console.print(f"[green]Tree report saved to {report_file}[/green]")
 
 
-def _write_tree_report(root: NewickNode, report_file: str, bootstrap_enabled: bool) -> None:
+def _write_newick_with_metadata(
+    root: NewickNode, output_file: str,
+    tree_method: str, distance_model: str, bootstrap_replicates: int,
+) -> None:
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as fh:
+        fh.write(f"# tree_method={tree_method}\n")
+        fh.write(f"# distance_model={distance_model}\n")
+        if bootstrap_replicates > 0:
+            fh.write(f"# bootstrap_replicates={bootstrap_replicates}\n")
+        fh.write(root.to_newick() + ";\n")
+
+
+def _write_tree_report(
+    root: NewickNode, report_file: str, bootstrap_enabled: bool,
+    tree_method: str = "", distance_model: str = "", bootstrap_replicates: int = 0,
+) -> None:
     all_leaves = frozenset(collect_leaf_names(root))
     internal_info = get_internal_nodes_with_leaves(root)
 
@@ -424,10 +463,17 @@ def _write_tree_report(root: NewickNode, report_file: str, bootstrap_enabled: bo
             row["bootstrap"] = f"{node.bootstrap:.1f}" if node.bootstrap is not None else ""
         rows.append(row)
 
-    if not rows:
-        return
-
     with open(output_path, "w", newline="", encoding="utf-8") as fh:
+        if tree_method:
+            fh.write(f"# tree_method={tree_method}\n")
+        if distance_model:
+            fh.write(f"# distance_model={distance_model}\n")
+        if bootstrap_replicates > 0:
+            fh.write(f"# bootstrap_replicates={bootstrap_replicates}\n")
+        if not rows:
+            fh.write("# No internal branches (only 2 sequences or polytomy at root)\n")
+            fh.write("# Sequences: " + ",".join(sorted(all_leaves)) + "\n")
+
         fieldnames = ["node_id", "branch_length", "num_leaves", "leaves"]
         if bootstrap_enabled:
             fieldnames.insert(2, "bootstrap")
