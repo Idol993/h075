@@ -1,0 +1,5 @@
+biopython>=1.82
+click>=8.1
+rich>=13.0
+scipy>=1.11
+numpy>=1.24
